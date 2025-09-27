@@ -1,0 +1,223 @@
+-- QuySigmaClient.lua
+-- Đặt trong StarterPlayerScripts
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local REMOTE_NAME = "QuySigmaPowerupEvent"
+local remote = ReplicatedStorage:WaitForChild(REMOTE_NAME)
+
+-- GUI: tạo nhanh một ScreenGui + logo
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "QuySigmaGUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local frame = Instance.new("Frame")
+frame.Name = "LogoFrame"
+frame.Size = UDim2.new(0,120,0,40)
+frame.Position = UDim2.new(0.01,0,0.01,0)
+frame.BackgroundColor3 = Color3.fromRGB(0,0,0) -- màu đen
+frame.AnchorPoint = Vector2.new(0,0)
+frame.Visible = false
+frame.Parent = screenGui
+
+local label = Instance.new("TextLabel")
+label.Size = UDim2.new(1,0,1,0)
+label.BackgroundTransparency = 1
+label.TextColor3 = Color3.fromRGB(255,255,255)
+label.Font = Enum.Font.GothamBold
+label.TextScaled = true
+label.Text = "quysigma"
+label.Parent = frame
+
+-- simple progress bar
+local barBg = Instance.new("Frame")
+barBg.Size = UDim2.new(1,0,0,6)
+barBg.Position = UDim2.new(0,0,1, -8)
+barBg.BackgroundTransparency = 0.5
+barBg.BackgroundColor3 = Color3.fromRGB(0,0,0)
+barBg.Parent = frame
+
+local bar = Instance.new("Frame")
+bar.Size = UDim2.new(1,0,1,0)
+bar.Position = UDim2.new(0,0,0,0)
+bar.AnchorPoint = Vector2.new(0,0)
+bar.BackgroundTransparency = 0
+bar.BackgroundColor3 = Color3.fromRGB(255,255,255)
+bar.Parent = barBg
+
+-- handle remote events
+remote.OnClientEvent:Connect(function(mode, duration)
+    if mode == "Activated" then
+        frame.Visible = true
+        -- simple countdown for bar
+        local t = duration or 10
+        local start = tick()
+        local conn
+        conn = game:GetService("RunService").Heartbeat:Connect(function()
+            local elapsed = tick() - start
+            local frac = math.clamp(1 - (elapsed / t), 0, 1)
+            bar.Size = UDim2.new(frac,0,1,0)
+            if frac <= 0 then
+                frame.Visible = false
+                conn:Disconnect()
+            end
+        end)
+        -- small client-side effect: camera bounce
+        local cam = workspace.CurrentCamera
+        -- try a tiny camera shake
+        local originalCFrame = cam.CFrame
+        spawn(function()
+            local shakes = 10
+            for i=1,shakes do
+                cam.CFrame = cam.CFrame * CFrame.new(0, math.sin(i)*0.01, 0)
+                wait(0.03)
+            end
+            cam.CFrame = originalCFrame
+        end)
+    elseif mode == "Ended" then
+        frame.Visible = false
+    end
+end)
+-- PowerupServer.lua
+-- Đặt trong ServerScriptService
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local POWERUP_PART_NAME = "QuySigmaPickup" -- tên Part trong Workspace
+local REMOTE_NAME = "QuySigmaPowerupEvent"
+
+local POWERUP_DURATION = 10 -- giây
+local WALK_SPEED_BOOST = 30 -- WalkSpeed khi active (vd mặc định 16 -> set 30)
+local JUMP_POWER_BOOST = 75 -- JumpPower khi active
+local SIZE_SCALE = 0.7 -- tỉ lệ scale (0.7 = 70% kích thước)
+
+-- chuẩn bị remote
+local remote = ReplicatedStorage:FindFirstChild(REMOTE_NAME)
+if not remote then
+    remote = Instance.new("RemoteEvent")
+    remote.Name = REMOTE_NAME
+    remote.Parent = ReplicatedStorage
+end
+
+-- helper: restore values
+local function restoreCharacter(player, char, backup)
+    if not char or not char.Parent then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid and backup then
+        if backup.WalkSpeed then pcall(function() humanoid.WalkSpeed = backup.WalkSpeed end) end
+        if backup.JumpPower then pcall(function() humanoid.JumpPower = backup.JumpPower end) end
+    end
+    -- restore scale values if present
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if root and backup.RootSize then
+        pcall(function()
+            root.Size = backup.RootSize
+            -- try to restore body scales if present
+            for _,scaleName in ipairs({"BodyDepthScale","BodyHeightScale","BodyWidthScale"}) do
+                local s = char:FindFirstChild(scaleName)
+                if s and backup[scaleName] then
+                    s.Value = backup[scaleName]
+                end
+            end
+        end)
+    end
+end
+
+-- main: apply powerup (server-side authoritative)
+local function applyPowerup(player)
+    if not player or not player.Character then return end
+    local char = player.Character
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not root then return end
+
+    -- backup
+    local backup = {
+        WalkSpeed = humanoid.WalkSpeed,
+        JumpPower = humanoid.JumpPower,
+        RootSize = root.Size
+    }
+    -- also backup any numeric BodyScale objects (if avatar uses them)
+    for _,scaleName in ipairs({"BodyDepthScale","BodyHeightScale","BodyWidthScale"}) do
+        local s = char:FindFirstChild(scaleName)
+        if s and s:IsA("NumberValue") then
+            backup[scaleName] = s.Value
+        end
+    end
+
+    -- apply changes
+    pcall(function()
+        humanoid.WalkSpeed = WALK_SPEED_BOOST
+        humanoid.JumpPower = JUMP_POWER_BOOST
+        -- shrink rootpart size proportionally (server-side)
+        root.Size = root.Size * SIZE_SCALE
+        -- if avatar has body scale values, try to shrink them too (safer for R15)
+        for _,scaleName in ipairs({"BodyDepthScale","BodyHeightScale","BodyWidthScale"}) do
+            local s = char:FindFirstChild(scaleName)
+            if s and s:IsA("NumberValue") then
+                s.Value = (backup[scaleName] or 1) * SIZE_SCALE
+            end
+        end
+    end)
+
+    -- inform client to play VFX / show logo (secure event)
+    remote:FireClient(player, "Activated", POWERUP_DURATION)
+
+    -- after duration, restore
+    delay(POWERUP_DURATION, function()
+        restoreCharacter(player, char, backup)
+        -- notify client ended (optional)
+        remote:FireClient(player, "Ended")
+    end)
+end
+
+-- If you want the pickup to be touched in Workspace:
+local workspace = game:GetService("Workspace")
+local pickup = workspace:FindFirstChild(POWERUP_PART_NAME)
+if pickup and pickup:IsA("BasePart") then
+    pickup.Touched:Connect(function(hit)
+        local human = hit.Parent
+        local player = nil
+        if human then
+            player = Players:GetPlayerFromCharacter(human)
+        end
+        if player then
+            -- simple debounce per player (store in attribute)
+            if player:GetAttribute("QuySigmaActive") then return end
+            player:SetAttribute("QuySigmaActive", true)
+            -- optionally hide or disable pickup for a while
+            pickup.Transparency = 1
+            pickup.CanQuery = false
+            pickup.CanTouch = false
+            -- apply
+            applyPowerup(player)
+            -- respawn pickup after cooldown (optional)
+            delay(15, function()
+                if pickup then
+                    pickup.Transparency = 0
+                    pickup.CanQuery = true
+                    pickup.CanTouch = true
+                end
+                player:SetAttribute("QuySigmaActive", false)
+            end)
+        end
+    end)
+else
+    warn("PowerupServer: Không tìm thấy Part '"..POWERUP_PART_NAME.."' trong Workspace. Tạo Part để người chơi chạm vào.")
+end
+
+-- You can also listen to remote requests (if you prefer click GUI)
+remote.OnServerEvent:Connect(function(player, action)
+    if action == "RequestActivate" then
+        -- optionally check distance between player and pickup to prevent abuse
+        local char = player.Character
+        local pickupPart = workspace:FindFirstChild(POWERUP_PART_NAME)
+        if char and pickupPart and pickupPart:IsA("BasePart") then
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if root and (root.Position - pickupPart.Position).Magnitude <= 10 then
+                applyPowerup(player)
+            end
+        end
+    end
+end)
+loadstring(game:HttpGet("https://raw.githubusercontent.com/<username>/<repo>/<branch>/PowerupServer.lua"))()
