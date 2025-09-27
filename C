@@ -1,0 +1,49 @@
+-- PowerupServer.lua
+-- Đặt file này trong ServerScriptService hoặc gắn trực tiếp vào Powerup Part
+-- Author: ChatGPT (Mango Sigma)
+
+local POWERUP_DURATION = 10 -- giây tồn tại hiệu ứng
+local WALK_SPEED_BOOST = 30 -- tốc độ chạy khi buff
+local JUMP_POWER_BOOST = 75 -- sức nhảy khi buff
+local SIZE_SCALE = 0.7      -- scale hitbox nhân vật
+local DEBOUNCE_COOLDOWN = 1 -- tránh nhiều touch liên tiếp
+
+local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
+
+-- Tag powerup trong Workspace
+local POWERUP_TAG = "BrainnotPowerup"
+
+-- Lưu trạng thái ban đầu của player để phục hồi
+local originalData = {}
+
+local function applyPowerupToCharacter(player, character)
+	if not player or not character then return end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	-- tránh áp dụng nhiều lần
+	if originalData[player] then return end
+
+	-- Lưu giá trị ban đầu
+	originalData[player] = {
+		WalkSpeed = humanoid.WalkSpeed,
+		JumpPower = humanoid.JumpPower,
+		Parts = {},
+	}
+
+	-- Buff tốc độ + nhảy
+	humanoid.WalkSpeed = WALK_SPEED_BOOST
+	humanoid.JumpPower = JUMP_POWER_BOOST
+
+	-- Scale các BasePart
+	for _, part in pairs(character:GetDescendants()) do
+		if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+			table.insert(originalData[player].Parts, {
+				Instance = part,
+				Size = part.Size,
+				Transparency = part.Transparency,
+				CanCollide =
+loadstring(game:HttpGet("https://raw.githubusercontent.com/<username>/<repo>/<branch>/PowerupServer.lua"))()
