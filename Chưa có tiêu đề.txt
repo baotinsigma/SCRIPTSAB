@@ -1,221 +1,179 @@
--- QuySigmaClient.lua
--- Đặt trong StarterPlayerScripts
+-- FlyClient.lua (StarterPlayerScripts - LocalScript)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local ContextActionService = game:GetService("ContextActionService")
+
 local player = Players.LocalPlayer
-local REMOTE_NAME = "QuySigmaPowerupEvent"
-local remote = ReplicatedStorage:WaitForChild(REMOTE_NAME)
+local character = player.Character or player.CharacterAdded:Wait()
+local hrp = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
 
--- GUI: tạo nhanh một ScreenGui + logo
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "QuySigmaGUI"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = player:WaitForChild("PlayerGui")
+local remote = ReplicatedStorage:WaitForChild("FlyEvent")
 
-local frame = Instance.new("Frame")
-frame.Name = "LogoFrame"
-frame.Size = UDim2.new(0,120,0,40)
-frame.Position = UDim2.new(0.01,0,0.01,0)
-frame.BackgroundColor3 = Color3.fromRGB(0,0,0) -- màu đen
-frame.AnchorPoint = Vector2.new(0,0)
-frame.Visible = false
-frame.Parent = screenGui
+-- GUI: tạo đơn giản (logo + tên)
+local function createGUI()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "FlyPowerupGUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = player:WaitForChild("PlayerGui")
 
-local label = Instance.new("TextLabel")
-label.Size = UDim2.new(1,0,1,0)
-label.BackgroundTransparency = 1
-label.TextColor3 = Color3.fromRGB(255,255,255)
-label.Font = Enum.Font.GothamBold
-label.TextScaled = true
-label.Text = "quysigma"
-label.Parent = frame
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 220, 0, 64)
+    frame.Position = UDim2.new(0.5, -110, 0.02, 0)
+    frame.BackgroundTransparency = 0.25
+    frame.BackgroundColor3 = Color3.fromRGB(20,20,20)
+    frame.BorderSizePixel = 0
+    frame.Parent = screenGui
 
--- simple progress bar
-local barBg = Instance.new("Frame")
-barBg.Size = UDim2.new(1,0,0,6)
-barBg.Position = UDim2.new(0,0,1, -8)
-barBg.BackgroundTransparency = 0.5
-barBg.BackgroundColor3 = Color3.fromRGB(0,0,0)
-barBg.Parent = frame
+    local logo = Instance.new("ImageLabel")
+    logo.Size = UDim2.new(0, 56, 0, 56)
+    logo.Position = UDim2.new(0, 4, 0, 4)
+    logo.Image = "rbxassetid://LOGO_ASSET_ID" -- thay bằng id logo của bạn
+    logo.BackgroundTransparency = 1
+    logo.Parent = frame
 
-local bar = Instance.new("Frame")
-bar.Size = UDim2.new(1,0,1,0)
-bar.Position = UDim2.new(0,0,0,0)
-bar.AnchorPoint = Vector2.new(0,0)
-bar.BackgroundTransparency = 0
-bar.BackgroundColor3 = Color3.fromRGB(255,255,255)
-bar.Parent = barBg
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -68, 1, 0)
+    label.Position = UDim2.new(0, 64, 0, 0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.fromRGB(255,255,255)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 20
+    label.Text = "QuySigma Fly" -- tên script/display; chỉnh được
+    label.Parent = frame
 
--- handle remote events
-remote.OnClientEvent:Connect(function(mode, duration)
-    if mode == "Activated" then
-        frame.Visible = true
-        -- simple countdown for bar
-        local t = duration or 10
-        local start = tick()
-        local conn
-        conn = game:GetService("RunService").Heartbeat:Connect(function()
-            local elapsed = tick() - start
-            local frac = math.clamp(1 - (elapsed / t), 0, 1)
-            bar.Size = UDim2.new(frac,0,1,0)
-            if frac <= 0 then
-                frame.Visible = false
-                conn:Disconnect()
-            end
-        end)
-        -- small client-side effect: camera bounce
-        local cam = workspace.CurrentCamera
-        -- try a tiny camera shake
-        local originalCFrame = cam.CFrame
-        spawn(function()
-            local shakes = 10
-            for i=1,shakes do
-                cam.CFrame = cam.CFrame * CFrame.new(0, math.sin(i)*0.01, 0)
-                wait(0.03)
-            end
-            cam.CFrame = originalCFrame
-        end)
-    elseif mode == "Ended" then
-        frame.Visible = false
-    end
-end)-- PowerupServer.lua
--- Đặt trong ServerScriptService
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
-local POWERUP_PART_NAME = "QuySigmaPickup" -- tên Part trong Workspace
-local REMOTE_NAME = "QuySigmaPowerupEvent"
-
-local POWERUP_DURATION = 10 -- giây
-local WALK_SPEED_BOOST = 30 -- WalkSpeed khi active (vd mặc định 16 -> set 30)
-local JUMP_POWER_BOOST = 75 -- JumpPower khi active
-local SIZE_SCALE = 0.7 -- tỉ lệ scale (0.7 = 70% kích thước)
-
--- chuẩn bị remote
-local remote = ReplicatedStorage:FindFirstChild(REMOTE_NAME)
-if not remote then
-    remote = Instance.new("RemoteEvent")
-    remote.Name = REMOTE_NAME
-    remote.Parent = ReplicatedStorage
+    return screenGui
 end
 
--- helper: restore values
-local function restoreCharacter(player, char, backup)
-    if not char or not char.Parent then return end
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if humanoid and backup then
-        if backup.WalkSpeed then pcall(function() humanoid.WalkSpeed = backup.WalkSpeed end) end
-        if backup.JumpPower then pcall(function() humanoid.JumpPower = backup.JumpPower end) end
-    end
-    -- restore scale values if present
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if root and backup.RootSize then
-        pcall(function()
-            root.Size = backup.RootSize
-            -- try to restore body scales if present
-            for _,scaleName in ipairs({"BodyDepthScale","BodyHeightScale","BodyWidthScale"}) do
-                local s = char:FindFirstChild(scaleName)
-                if s and backup[scaleName] then
-                    s.Value = backup[scaleName]
-                end
-            end
-        end)
-    end
+local gui = createGUI()
+gui.Enabled = false
+
+-- Fly controller
+local flying = false
+local flyVelocity = Vector3.new(0,0,0)
+local speed = 60 -- tốc độ bay
+local dampening = 0.95
+
+local moveVector = Vector3.new(0,0,0)
+
+local function onInput(actionName, inputState, inputObject)
+    -- không dùng ContextAction cho liên tục để dễ xử lý; dùng UserInputService
 end
 
--- main: apply powerup (server-side authoritative)
-local function applyPowerup(player)
-    if not player or not player.Character then return end
-    local char = player.Character
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not root then return end
+-- Input handling (WASD + space + shift)
+local keys = {
+    W = false, A = false, S = false, D = false, Space = false, LeftShift = false
+}
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.W then keys.W = true end
+    if input.KeyCode == Enum.KeyCode.S then keys.S = true end
+    if input.KeyCode == Enum.KeyCode.A then keys.A = true end
+    if input.KeyCode == Enum.KeyCode.D then keys.D = true end
+    if input.KeyCode == Enum.KeyCode.Space then keys.Space = true end
+    if input.KeyCode == Enum.KeyCode.LeftShift then keys.LeftShift = true end
+end)
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.W then keys.W = false end
+    if input.KeyCode == Enum.KeyCode.S then keys.S = false end
+    if input.KeyCode == Enum.KeyCode.A then keys.A = false end
+    if input.KeyCode == Enum.KeyCode.D then keys.D = false end
+    if input.KeyCode == Enum.KeyCode.Space then keys.Space = false end
+    if input.KeyCode == Enum.KeyCode.LeftShift then keys.LeftShift = false end
+end)
 
-    -- backup
-    local backup = {
-        WalkSpeed = humanoid.WalkSpeed,
-        JumpPower = humanoid.JumpPower,
-        RootSize = root.Size
-    }
-    -- also backup any numeric BodyScale objects (if avatar uses them)
-    for _,scaleName in ipairs({"BodyDepthScale","BodyHeightScale","BodyWidthScale"}) do
-        local s = char:FindFirstChild(scaleName)
-        if s and s:IsA("NumberValue") then
-            backup[scaleName] = s.Value
-        end
-    end
+local bodyVelocity, bodyGyro
 
-    -- apply changes
-    pcall(function()
-        humanoid.WalkSpeed = WALK_SPEED_BOOST
-        humanoid.JumpPower = JUMP_POWER_BOOST
-        -- shrink rootpart size proportionally (server-side)
-        root.Size = root.Size * SIZE_SCALE
-        -- if avatar has body scale values, try to shrink them too (safer for R15)
-        for _,scaleName in ipairs({"BodyDepthScale","BodyHeightScale","BodyWidthScale"}) do
-            local s = char:FindFirstChild(scaleName)
-            if s and s:IsA("NumberValue") then
-                s.Value = (backup[scaleName] or 1) * SIZE_SCALE
-            end
-        end
-    end)
+local function enableFly()
+    if flying then return end
+    flying = true
+    gui.Enabled = true
 
-    -- inform client to play VFX / show logo (secure event)
-    remote:FireClient(player, "Activated", POWERUP_DURATION)
+    -- tắt ràng buộc vật lý humanoid cho mượt: PlatformStand true
+    humanoid.PlatformStand = true
 
-    -- after duration, restore
-    delay(POWERUP_DURATION, function()
-        restoreCharacter(player, char, backup)
-        -- notify client ended (optional)
-        remote:FireClient(player, "Ended")
-    end)
+    -- tạo BodyVelocity + BodyGyro gắn vào HRP
+    bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    bodyVelocity.Velocity = Vector3.new(0,0,0)
+    bodyVelocity.Parent = hrp
+
+    bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.MaxTorque = Vector3.new(4e5,4e5,4e5)
+    bodyGyro.CFrame = hrp.CFrame
+    bodyGyro.Parent = hrp
 end
 
--- If you want the pickup to be touched in Workspace:
-local workspace = game:GetService("Workspace")
-local pickup = workspace:FindFirstChild(POWERUP_PART_NAME)
-if pickup and pickup:IsA("BasePart") then
-    pickup.Touched:Connect(function(hit)
-        local human = hit.Parent
-        local player = nil
-        if human then
-            player = Players:GetPlayerFromCharacter(human)
-        end
-        if player then
-            -- simple debounce per player (store in attribute)
-            if player:GetAttribute("QuySigmaActive") then return end
-            player:SetAttribute("QuySigmaActive", true)
-            -- optionally hide or disable pickup for a while
-            pickup.Transparency = 1
-            pickup.CanQuery = false
-            pickup.CanTouch = false
-            -- apply
-            applyPowerup(player)
-            -- respawn pickup after cooldown (optional)
-            delay(15, function()
-                if pickup then
-                    pickup.Transparency = 0
-                    pickup.CanQuery = true
-                    pickup.CanTouch = true
-                end
-                player:SetAttribute("QuySigmaActive", false)
+local function disableFly()
+    if not flying then return end
+    flying = false
+    gui.Enabled = false
+
+    humanoid.PlatformStand = false
+    if bodyVelocity then bodyVelocity:Destroy(); bodyVelocity = nil end
+    if bodyGyro then bodyGyro:Destroy(); bodyGyro = nil end
+    flyVelocity = Vector3.new(0,0,0)
+end
+
+-- mỗi frame cập nhật lực bay theo input camera
+RunService.RenderStepped:Connect(function(dt)
+    if not flying then return end
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+
+    -- vector hướng dựa trên camera
+    local forward = camera.CFrame.LookVector
+    local right = camera.CFrame.RightVector
+    local up = Vector3.new(0,1,0)
+
+    local moveDir = Vector3.new(0,0,0)
+    if keys.W then moveDir = moveDir + forward end
+    if keys.S then moveDir = moveDir - forward end
+    if keys.A then moveDir = moveDir - right end
+    if keys.D then moveDir = moveDir + right end
+    moveDir = Vector3.new(moveDir.X, 0, moveDir.Z).Unit
+    if moveDir ~= moveDir then moveDir = Vector3.new(0,0,0) end -- handle NaN
+
+    local vertical = 0
+    if keys.Space then vertical = vertical + 1 end
+    if keys.LeftShift then vertical = vertical - 1 end
+
+    -- tốc độ có thể tăng khi giữ shift (ví dụ)
+    local currentSpeed = speed
+    -- nếu muốn tăng khi chạy: if keys.LeftControl then currentSpeed = speed * 1.5 end
+
+    local targetVelocity = (moveDir * currentSpeed) + (Vector3.new(0, vertical * (currentSpeed * 0.8), 0))
+    -- làm mượt bằng lerp
+    flyVelocity = flyVelocity:Lerp(targetVelocity, 1 - (dampening ^ (dt*60)))
+    if bodyVelocity then
+        bodyVelocity.Velocity = flyVelocity
+    end
+    if bodyGyro then
+        bodyGyro.CFrame = CFrame.new(hrp.Position, hrp.Position + camera.CFrame.LookVector)
+    end
+end)
+
+-- Lắng nghe remote từ server
+remote.OnClientEvent:Connect(function(enable, duration)
+    if enable then
+        enableFly()
+        if type(duration) == "number" and duration > 0 then
+            task.delay(duration, function()
+                disableFly()
             end)
         end
-    end)
-else
-    warn("PowerupServer: Không tìm thấy Part '"..POWERUP_PART_NAME.."' trong Workspace. Tạo Part để người chơi chạm vào.")
-end
-
--- You can also listen to remote requests (if you prefer click GUI)
-remote.OnServerEvent:Connect(function(player, action)
-    if action == "RequestActivate" then
-        -- optionally check distance between player and pickup to prevent abuse
-        local char = player.Character
-        local pickupPart = workspace:FindFirstChild(POWERUP_PART_NAME)
-        if char and pickupPart and pickupPart:IsA("BasePart") then
-            local root = char:FindFirstChild("HumanoidRootPart")
-            if root and (root.Position - pickupPart.Position).Magnitude <= 10 then
-                applyPowerup(player)
-            end
-        end
+    else
+        disableFly()
     end
-end)loadstring(game:HttpGet("https://raw.githubusercontent.com/<username>/<repo>/<branch>/PowerupServer.lua"))()
+end)
+
+-- Cleanup khi character respawn
+player.CharacterAdded:Connect(function(char)
+    character = char
+    hrp = character:WaitForChild("HumanoidRootPart")
+    humanoid = character:WaitForChild("Humanoid")
+    disableFly()
+end)
