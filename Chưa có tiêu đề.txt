@@ -1,179 +1,28 @@
--- FlyClient.lua (StarterPlayerScripts - LocalScript)
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
+-- LocalScript (đặt trong StarterPlayerScripts)
+
 local Players = game:GetService("Players")
-local ContextActionService = game:GetService("ContextActionService")
-
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local hrp = character:WaitForChild("HumanoidRootPart")
-local humanoid = character:WaitForChild("Humanoid")
 
-local remote = ReplicatedStorage:WaitForChild("FlyEvent")
+-- Tạo ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "BanScreen"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
 
--- GUI: tạo đơn giản (logo + tên)
-local function createGUI()
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "FlyPowerupGUI"
-    screenGui.ResetOnSpawn = false
-    screenGui.Parent = player:WaitForChild("PlayerGui")
+-- Tạo khung nền đen
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(1, 0, 1, 0)
+frame.Position = UDim2.new(0, 0, 0, 0)
+frame.BackgroundColor3 = Color3.new(0, 0, 0)
+frame.BorderSizePixel = 0
+frame.Parent = screenGui
 
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 220, 0, 64)
-    frame.Position = UDim2.new(0.5, -110, 0.02, 0)
-    frame.BackgroundTransparency = 0.25
-    frame.BackgroundColor3 = Color3.fromRGB(20,20,20)
-    frame.BorderSizePixel = 0
-    frame.Parent = screenGui
-
-    local logo = Instance.new("ImageLabel")
-    logo.Size = UDim2.new(0, 56, 0, 56)
-    logo.Position = UDim2.new(0, 4, 0, 4)
-    logo.Image = "rbxassetid://LOGO_ASSET_ID" -- thay bằng id logo của bạn
-    logo.BackgroundTransparency = 1
-    logo.Parent = frame
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, -68, 1, 0)
-    label.Position = UDim2.new(0, 64, 0, 0)
-    label.BackgroundTransparency = 1
-    label.TextColor3 = Color3.fromRGB(255,255,255)
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Font = Enum.Font.GothamBold
-    label.TextSize = 20
-    label.Text = "QuySigma Fly" -- tên script/display; chỉnh được
-    label.Parent = frame
-
-    return screenGui
-end
-
-local gui = createGUI()
-gui.Enabled = false
-
--- Fly controller
-local flying = false
-local flyVelocity = Vector3.new(0,0,0)
-local speed = 60 -- tốc độ bay
-local dampening = 0.95
-
-local moveVector = Vector3.new(0,0,0)
-
-local function onInput(actionName, inputState, inputObject)
-    -- không dùng ContextAction cho liên tục để dễ xử lý; dùng UserInputService
-end
-
--- Input handling (WASD + space + shift)
-local keys = {
-    W = false, A = false, S = false, D = false, Space = false, LeftShift = false
-}
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.W then keys.W = true end
-    if input.KeyCode == Enum.KeyCode.S then keys.S = true end
-    if input.KeyCode == Enum.KeyCode.A then keys.A = true end
-    if input.KeyCode == Enum.KeyCode.D then keys.D = true end
-    if input.KeyCode == Enum.KeyCode.Space then keys.Space = true end
-    if input.KeyCode == Enum.KeyCode.LeftShift then keys.LeftShift = true end
-end)
-UserInputService.InputEnded:Connect(function(input, gameProcessed)
-    if input.KeyCode == Enum.KeyCode.W then keys.W = false end
-    if input.KeyCode == Enum.KeyCode.S then keys.S = false end
-    if input.KeyCode == Enum.KeyCode.A then keys.A = false end
-    if input.KeyCode == Enum.KeyCode.D then keys.D = false end
-    if input.KeyCode == Enum.KeyCode.Space then keys.Space = false end
-    if input.KeyCode == Enum.KeyCode.LeftShift then keys.LeftShift = false end
-end)
-
-local bodyVelocity, bodyGyro
-
-local function enableFly()
-    if flying then return end
-    flying = true
-    gui.Enabled = true
-
-    -- tắt ràng buộc vật lý humanoid cho mượt: PlatformStand true
-    humanoid.PlatformStand = true
-
-    -- tạo BodyVelocity + BodyGyro gắn vào HRP
-    bodyVelocity = Instance.new("BodyVelocity")
-    bodyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-    bodyVelocity.Velocity = Vector3.new(0,0,0)
-    bodyVelocity.Parent = hrp
-
-    bodyGyro = Instance.new("BodyGyro")
-    bodyGyro.MaxTorque = Vector3.new(4e5,4e5,4e5)
-    bodyGyro.CFrame = hrp.CFrame
-    bodyGyro.Parent = hrp
-end
-
-local function disableFly()
-    if not flying then return end
-    flying = false
-    gui.Enabled = false
-
-    humanoid.PlatformStand = false
-    if bodyVelocity then bodyVelocity:Destroy(); bodyVelocity = nil end
-    if bodyGyro then bodyGyro:Destroy(); bodyGyro = nil end
-    flyVelocity = Vector3.new(0,0,0)
-end
-
--- mỗi frame cập nhật lực bay theo input camera
-RunService.RenderStepped:Connect(function(dt)
-    if not flying then return end
-    local camera = workspace.CurrentCamera
-    if not camera then return end
-
-    -- vector hướng dựa trên camera
-    local forward = camera.CFrame.LookVector
-    local right = camera.CFrame.RightVector
-    local up = Vector3.new(0,1,0)
-
-    local moveDir = Vector3.new(0,0,0)
-    if keys.W then moveDir = moveDir + forward end
-    if keys.S then moveDir = moveDir - forward end
-    if keys.A then moveDir = moveDir - right end
-    if keys.D then moveDir = moveDir + right end
-    moveDir = Vector3.new(moveDir.X, 0, moveDir.Z).Unit
-    if moveDir ~= moveDir then moveDir = Vector3.new(0,0,0) end -- handle NaN
-
-    local vertical = 0
-    if keys.Space then vertical = vertical + 1 end
-    if keys.LeftShift then vertical = vertical - 1 end
-
-    -- tốc độ có thể tăng khi giữ shift (ví dụ)
-    local currentSpeed = speed
-    -- nếu muốn tăng khi chạy: if keys.LeftControl then currentSpeed = speed * 1.5 end
-
-    local targetVelocity = (moveDir * currentSpeed) + (Vector3.new(0, vertical * (currentSpeed * 0.8), 0))
-    -- làm mượt bằng lerp
-    flyVelocity = flyVelocity:Lerp(targetVelocity, 1 - (dampening ^ (dt*60)))
-    if bodyVelocity then
-        bodyVelocity.Velocity = flyVelocity
-    end
-    if bodyGyro then
-        bodyGyro.CFrame = CFrame.new(hrp.Position, hrp.Position + camera.CFrame.LookVector)
-    end
-end)
-
--- Lắng nghe remote từ server
-remote.OnClientEvent:Connect(function(enable, duration)
-    if enable then
-        enableFly()
-        if type(duration) == "number" and duration > 0 then
-            task.delay(duration, function()
-                disableFly()
-            end)
-        end
-    else
-        disableFly()
-    end
-end)
-
--- Cleanup khi character respawn
-player.CharacterAdded:Connect(function(char)
-    character = char
-    hrp = character:WaitForChild("HumanoidRootPart")
-    humanoid = character:WaitForChild("Humanoid")
-    disableFly()
-end)
+-- Tạo chữ "Bạn bị bay"
+local textLabel = Instance.new("TextLabel")
+textLabel.Size = UDim2.new(1, 0, 1, 0)
+textLabel.BackgroundTransparency = 1
+textLabel.Text = "Bạn bị bay"
+textLabel.TextColor3 = Color3.new(1, 1, 1)
+textLabel.Font = Enum.Font.SourceSansBold
+textLabel.TextScaled = true
+textLabel.Parent = frame
